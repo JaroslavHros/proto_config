@@ -8,6 +8,7 @@ from homeassistant import config_entries
 from homeassistant.core import callback
 from homeassistant.data_entry_flow import FlowResult
 import homeassistant.helpers.config_validation as cv
+from homeassistant.helpers.selector import TextSelector, TextSelectorConfig, TextSelectorType
 
 from .const import (
     CONF_CONNECTION_TYPE, CONF_DEVICE_NAME, CONF_MODBUS_HOST,
@@ -178,8 +179,12 @@ class HeatPumpConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             elif ct == CONN_ESPHOME:
                 return await self.async_step_esphome()
 
-        template_options = {NO_TEMPLATE: "— No template —"}
+        # Build template dropdown — built-in + external from heatpump_templates/
+        from .template_loader import list_external_template_names, ensure_templates_dir
+        await ensure_templates_dir(self.hass)
+        template_options = {NO_TEMPLATE: "— Bez šablóny —"}
         template_options.update(TEMPLATES)
+        template_options.update(await list_external_template_names(self.hass))
 
         return self.async_show_form(
             step_id="user",
@@ -195,11 +200,18 @@ class HeatPumpConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     # ── Step: apply template ──────────────────────────────────────────────
     async def async_step_apply_template(self, template_name: str) -> FlowResult:
         from .templates import get_template
-        tpl = get_template(template_name)
+        from .template_loader import get_external_template
+
+        # External template (key starts with ext_)
+        if template_name.startswith("ext_"):
+            tpl = await get_external_template(self.hass, template_name)
+        else:
+            tpl = get_template(template_name)
+
         if not tpl:
             return await self.async_step_user()
 
-        # Override template with user-chosen name / connection_type
+        # Override with user-chosen name / connection_type / scan_interval
         tpl["name"] = self._device_config.get("name", tpl.get("name", "heat_pump"))
         if self._device_config.get("connection_type"):
             tpl["connection_type"] = self._device_config["connection_type"]
@@ -209,12 +221,13 @@ class HeatPumpConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._device_config = tpl
         self._registers = list(tpl.get("registers", []))
 
-        # Template is ESPHome — go straight to confirm step
         conn_type = tpl.get("connection_type", CONN_ESPHOME)
         if conn_type == CONN_ESPHOME:
             return await self.async_step_esphome_template()
-        else:
+        elif conn_type == CONN_MODBUS_TCP:
             return await self.async_step_modbus_tcp()
+        else:
+            return await self.async_step_modbus_rtu()
 
     async def async_step_esphome_template(self, user_input=None) -> FlowResult:
         """Let user confirm/adjust ESP connection params from the template."""
@@ -421,9 +434,9 @@ class HeatPumpConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Optional("icon"): vol.In(ESPHOME_ICONS),
                 vol.Optional("bitmask"): str,
                 vol.Optional("options_map"): str,
-                vol.Optional("select_lambda"): str,
-                vol.Optional("select_write_lambda"): str,
-                vol.Optional("custom_filters"): str,
+                vol.Optional("select_lambda"): TextSelector(TextSelectorConfig(multiline=True)),
+                vol.Optional("select_write_lambda"): TextSelector(TextSelectorConfig(multiline=True)),
+                vol.Optional("custom_filters"): TextSelector(TextSelectorConfig(multiline=True)),
             })
         else:
             schema_dict.update({
@@ -508,7 +521,7 @@ class HeatPumpConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Required("register_name"): str,
                 vol.Required("friendly_name"): str,
                 vol.Optional("update_interval", default="10s"): str,
-                vol.Optional("lambda"): str,
+                vol.Optional("lambda"): TextSelector(TextSelectorConfig(multiline=True)),
                 vol.Optional("icon"): vol.In(ESPHOME_ICONS),
             }),
             errors=errors,
@@ -807,9 +820,9 @@ class HeatPumpOptionsFlow(config_entries.OptionsFlow):
                 vol.Optional("icon"): vol.In(ESPHOME_ICONS),
                 vol.Optional("bitmask"): str,
                 vol.Optional("options_map"): str,
-                vol.Optional("select_lambda"): str,
-                vol.Optional("select_write_lambda"): str,
-                vol.Optional("custom_filters"): str,
+                vol.Optional("select_lambda"): TextSelector(TextSelectorConfig(multiline=True)),
+                vol.Optional("select_write_lambda"): TextSelector(TextSelectorConfig(multiline=True)),
+                vol.Optional("custom_filters"): TextSelector(TextSelectorConfig(multiline=True)),
             })
         else:
             schema_dict.update({
@@ -884,7 +897,7 @@ class HeatPumpOptionsFlow(config_entries.OptionsFlow):
                 vol.Required("register_name"): str,
                 vol.Required("friendly_name"): str,
                 vol.Optional("update_interval", default="10s"): str,
-                vol.Optional("lambda"): str,
+                vol.Optional("lambda"): TextSelector(TextSelectorConfig(multiline=True)),
                 vol.Optional("icon"): vol.In(ESPHOME_ICONS),
             }),
             errors={},
