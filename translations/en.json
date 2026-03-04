@@ -1,0 +1,269 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Heat Pump Configurator",
+        "description": "Konfigurácia zariadenia tepelného čerpadla",
+        "data": {
+          "device_name": "Názov zariadenia",
+          "connection_type": "Typ pripojenia",
+          "scan_interval": "Interval čítania (sekundy)",
+          "template": "Šablóna zariadenia (voliteľné)"
+        }
+      },
+      "esphome_template": {
+        "title": "ESPHome — Potvrdiť pripojenie",
+        "description": "Šablóna načítaná s {register_count} registrami. Skontroluj parametre pripojenia.",
+        "data": {
+          "platform": "Platforma",
+          "board": "Typ dosky",
+          "tx_pin": "TX Pin",
+          "rx_pin": "RX Pin",
+          "baudrate": "Baud Rate",
+          "modbus_slave": "Slave ID",
+          "parity": "Parita",
+          "stop_bits": "Stop bity"
+        }
+      },
+      "modbus_tcp": {
+        "title": "Modbus TCP",
+        "data": {
+          "modbus_host": "IP adresa",
+          "modbus_port": "Port",
+          "modbus_slave": "Slave ID"
+        }
+      },
+      "modbus_rtu": {
+        "title": "Modbus RTU",
+        "data": {
+          "serial_port": "Sériový port",
+          "baudrate": "Baud Rate",
+          "modbus_slave": "Slave ID",
+          "parity": "Parita",
+          "stop_bits": "Stop bity"
+        }
+      },
+      "esphome": {
+        "title": "ESPHome",
+        "data": {
+          "platform": "Platforma (ESP32/ESP8266)",
+          "board": "Typ dosky",
+          "tx_pin": "TX Pin",
+          "rx_pin": "RX Pin",
+          "baudrate": "Baud Rate",
+          "modbus_slave": "Slave ID",
+          "parity": "Parita",
+          "stop_bits": "Stop bity"
+        }
+      },
+      "add_register": {
+        "title": "Pridať register ({device_type})",
+        "description": "Pridaných registrov: {register_count}\n\nOptions map príklad: \"TUV\": 0, \"Kurenie\": 1, \"Chladenie\": 2\n\nCustom Filters (YAML list):\n- multiply: 0.1\n- offset: -50",
+        "data": {
+          "register_name": "Interný názov (ID)",
+          "friendly_name": "Zobrazovaný názov",
+          "address_format": "Formát adresy",
+          "register_address": "Adresa registra",
+          "register_type": "Typ registra",
+          "data_type": "Dátový typ",
+          "entity_type": "Typ entity",
+          "scale": "Koeficient (multiply)",
+          "offset": "Offset (add after scale)",
+          "unit": "Jednotka",
+          "device_class": "Device class",
+          "state_class": "State class",
+          "precision": "Desatinné miesta (Modbus)",
+          "accuracy_decimals": "Presnosť desatín (ESPHome)",
+          "icon": "Ikona (ESPHome)",
+          "bitmask": "Bitmask (napr. 0x0001)",
+          "options_map": "Options map (JSON format, pozri popis)",
+          "select_lambda": "Lambda čítanie (C++)",
+          "select_write_lambda": "Lambda zápis (C++)",
+          "scan_interval": "Interval čítania (Modbus)",
+          "custom_filters": "Custom filters (YAML list)",
+          "min": "Min hodnota",
+          "max": "Max hodnota",
+          "step": "Krok",
+          "done": "Dokončiť pridávanie registrov"
+        }
+      },
+      "add_integration_sensor": {
+        "title": "Pridať Integration Sensor",
+        "description": "Sledovanie celkového množstva (napr. spotreba energie, čas behu kompresora)",
+        "data": {
+          "register_name": "Interný názov (ID)",
+          "friendly_name": "Zobrazovaný názov",
+          "integration_source": "Zdrojový sensor ID (musí existovať)",
+          "integration_time_unit": "Časová jednotka",
+          "unit": "Jednotka",
+          "device_class": "Device class",
+          "state_class": "State class",
+          "accuracy_decimals": "Presnosť desatín",
+          "restore": "Obnoviť po reštarte"
+        }
+      },
+      "add_text_sensor": {
+        "title": "Pridať Text Sensor (template)",
+        "description": "Template text sensor s voliteľnou C++ lambda funkciou",
+        "data": {
+          "register_name": "Interný názov (ID)",
+          "friendly_name": "Zobrazovaný názov",
+          "update_interval": "Interval aktualizácie (napr. 10s)",
+          "lambda": "Lambda (C++ kod, vráti std::string)",
+          "icon": "Ikona"
+        }
+      },
+      "add_bitmask_sensor": {
+        "title": "Pridať Bitmask Sensor",
+        "description": "Číta jeden bit z registra a publikuje text (napr. SG signál, EVU, stavy kompresora)",
+        "data": {
+          "register_name": "Interný názov",
+          "friendly_name": "Zobrazovaný názov",
+          "address_format": "Formát adresy",
+          "register_address": "Adresa registra",
+          "register_type": "Typ registra",
+          "data_type": "Dátový typ",
+          "bitmask": "Bitmask (napr. 0x0001)",
+          "text_sensor_id": "ID výstupného text sensora",
+          "text_sensor_name": "Názov text sensora",
+          "true_text": "Text keď TRUE",
+          "false_text": "Text keď FALSE",
+          "internal": "Interný (skrytý) sensor",
+          "icon": "Ikona"
+        }
+      }
+    },
+    "error": {
+      "no_registers": "Musíš pridať aspoň jeden register",
+      "invalid_address": "Neplatný formát adresy alebo mimo rozsahu (0-65535)",
+      "invalid_yaml": "Neplatná YAML syntax v custom filters",
+      "must_be_list": "Custom filters musí byť YAML list (začína -)",
+      "cannot_connect": "Zlyhalo pripojenie",
+      "unknown": "Neočakávaná chyba"
+    },
+    "abort": {
+      "already_configured": "Zariadenie je už nakonfigurované",
+      "regenerated": "Konfigurácia bola regenerovaná"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Upraviť zariadenie",
+        "description": "Aktuálne registre:\n{registers}",
+        "data": {
+          "action": "Akcia"
+        }
+      },
+      "edit_modbus_tcp": {
+        "title": "Upravi Modbus TCP",
+        "data": {
+          "modbus_host": "IP adresa",
+          "modbus_port": "Port",
+          "modbus_slave": "Slave ID"
+        }
+      },
+      "edit_modbus_rtu": {
+        "title": "Upraviť Modbus RTU",
+        "data": {
+          "serial_port": "Sériový port",
+          "baudrate": "Baud Rate",
+          "modbus_slave": "Slave ID",
+          "parity": "Parita",
+          "stop_bits": "Stop bity"
+        }
+      },
+      "edit_esphome": {
+        "title": "Upraviť ESPHome",
+        "data": {
+          "platform": "Platforma",
+          "board": "Typ dosky",
+          "tx_pin": "TX Pin",
+          "rx_pin": "RX Pin",
+          "baudrate": "Baud Rate",
+          "modbus_slave": "Slave ID",
+          "parity": "Parita",
+          "stop_bits": "Stop bity"
+        }
+      },
+      "delete_register": {
+        "title": "Vymazať register",
+        "data": {
+          "register_index": "Vyber register na vymazanie"
+        }
+      },
+      "add_register": {
+        "title": "Pridať register",
+        "description": "Pridaných registrov: {register_count}",
+        "data": {
+          "register_name": "Interný názov (ID)",
+          "friendly_name": "Zobrazovaný názov",
+          "address_format": "Formát adresy",
+          "register_address": "Adresa registra",
+          "register_type": "Typ registra",
+          "data_type": "Dátový typ",
+          "entity_type": "Typ entity",
+          "scale": "Koeficient",
+          "offset": "Offset",
+          "unit": "Jednotka",
+          "device_class": "Device class",
+          "state_class": "State class",
+          "accuracy_decimals": "Presnosť desatín",
+          "icon": "Ikona",
+          "bitmask": "Bitmask",
+          "options_map": "Options map (JSON format)",
+          "select_lambda": "Lambda čítanie",
+          "select_write_lambda": "Lambda zápis",
+          "precision": "Desatinné miesta",
+          "scan_interval": "Interval čítania",
+          "custom_filters": "Custom filters",
+          "min": "Min",
+          "max": "Max",
+          "step": "Krok"
+        }
+      },
+      "add_integration_sensor": {
+        "title": "Pridať Integration Sensor",
+        "data": {
+          "register_name": "ID",
+          "friendly_name": "Zobrazovaný názov",
+          "integration_source": "Zdrojový sensor ID",
+          "integration_time_unit": "Časová jednotka",
+          "unit": "Jednotka",
+          "device_class": "Device class",
+          "state_class": "State class",
+          "accuracy_decimals": "Presnosť",
+          "restore": "Obnoviť po reštarte"
+        }
+      },
+      "add_text_sensor": {
+        "title": "Pridať Text Sensor",
+        "data": {
+          "register_name": "ID",
+          "friendly_name": "Zobrazovaný názov",
+          "update_interval": "Interval aktualizácie",
+          "lambda": "Lambda C++",
+          "icon": "Ikona"
+        }
+      },
+      "add_bitmask_sensor": {
+        "title": "Pridať Bitmask Sensor",
+        "data": {
+          "register_name": "ID",
+          "friendly_name": "Zobrazovaný názov",
+          "address_format": "Formát adresy",
+          "register_address": "Adresa registra",
+          "register_type": "Typ registra",
+          "data_type": "Dátový typ",
+          "bitmask": "Bitmask",
+          "text_sensor_id": "ID text sensora",
+          "text_sensor_name": "Názov text sensora",
+          "true_text": "Text TRUE",
+          "false_text": "Text FALSE",
+          "internal": "Interný sensor",
+          "icon": "Ikona"
+        }
+      }
+    }
+  }
+}

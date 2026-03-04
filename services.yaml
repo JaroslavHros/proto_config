@@ -1,0 +1,40 @@
+reload:
+  name: Reload device configuration
+  description: Regenerate YAML config and reload the protocol integration.
+  fields:
+    device_id:
+      name: Device ID
+      description: Optional - regenerate only this device. Leave empty to reload all.
+      example: "my_heat_pump"
+      selector:
+        text:
+
+export:
+  name: Export device configuration
+  description: Export device register mapping to a JSON file.
+  fields:
+    device_id:
+      name: Device ID
+      description: ID of the device to export.
+      required: true
+      example: "my_heat_pump"
+      selector:
+        text:
+    output_path:
+      name: Output path
+      description: Optional full path for the JSON file. Defaults to HA config directory.
+      example: "/config/heatpump_export_my_pump.json"
+      selector:
+        text:
+
+import:
+  name: Import device configuration
+  description: Import a previously exported device configuration from JSON.
+  fields:
+    config_path:
+      name: Config file path
+      description: Full path to the JSON export file.
+      required: true
+      example: "/config/heatpump_export_my_pump.json"
+      selector:
+        text:
