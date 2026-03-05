@@ -120,6 +120,76 @@ def _load_yaml_esphome(text: str) -> Any:
     return yaml.load(text, Loader=_EspHomeLoader)
 
 
+
+def _convert_ha_modbus_sensors(items: list, source_file: str) -> Optional[Dict[str, Any]]:
+    """
+    Convert a flat HA Modbus sensors list (used with !include) to our template format.
+    Format: root is a list of dicts, each with address/slave/name/data_type etc.
+    No connection params are stored — user fills those in the wizard.
+    """
+    registers = []
+    slave = 1  # default, take from first item
+
+    for item in items:
+        if not isinstance(item, dict) or "address" not in item:
+            continue
+
+        slave = item.get("slave", slave)
+        addr = item.get("address", 0)
+        name_raw = item.get("name", f"reg_{addr}")
+
+        # Generate internal ID from name
+        import re
+        reg_id = re.sub(r"[^a-z0-9_]", "_", name_raw.lower()).strip("_")
+        reg_id = re.sub(r"_+", "_", reg_id)
+
+        # Parse address but keep as int — generator will write as hex
+        addr_int = addr if isinstance(addr, int) else _parse_register_address(str(addr))
+        reg = {
+            "name": reg_id,
+            "friendly_name": name_raw,
+            "register": addr_int,
+            "register_type": "holding",
+            "data_type": item.get("data_type", "uint16"),
+            "entity_type": "sensor",
+        }
+
+        # Map HA Modbus fields to our fields
+        if item.get("unit_of_measurement"):
+            reg["unit"] = item["unit_of_measurement"]
+        if item.get("device_class"):
+            reg["device_class"] = item["device_class"]
+        if item.get("state_class"):
+            reg["state_class"] = item["state_class"]
+        if item.get("scale") is not None:
+            reg["scale"] = item["scale"]
+        if item.get("precision") is not None:
+            reg["precision"] = item["precision"]
+        if item.get("scan_interval") is not None:
+            reg["scan_interval"] = item["scan_interval"]
+
+        registers.append(reg)
+
+    if not registers:
+        return None
+
+    name = Path(source_file).stem.replace("_", " ").title()
+
+    return {
+        "name": name,
+        "connection_type": "modbus_tcp",   # user will change this in wizard
+        "scan_interval": registers[0].get("scan_interval", 10) if registers else 10,
+        "connection_params": {
+            "host": "192.168.1.100",       # placeholder — user changes in wizard
+            "port": 502,
+            "slave": slave,
+        },
+        "registers": registers,
+        # Store original YAML for passthrough write
+        "passthrough": True,
+        "passthrough_type": "ha_modbus_sensors",
+    }
+
 def _load_templates_sync(hass_config_dir: str) -> Dict[str, Dict[str, Any]]:
     """
     Scan heatpump_templates/ and return {template_key: template_dict}.
@@ -146,17 +216,27 @@ def _load_templates_sync(hass_config_dir: str) -> Dict[str, Dict[str, Any]]:
             else:
                 raw = _load_yaml_esphome(f.read_text(encoding="utf-8"))
 
-            if not isinstance(raw, dict):
-                _LOGGER.debug("Skipping %s — not a dict", f.name)
-                continue
+            # Format 1: flat list of HA Modbus sensors (used with !include)
+            if isinstance(raw, list):
+                if raw and isinstance(raw[0], dict) and "address" in raw[0]:
+                    tpl = _convert_ha_modbus_sensors(raw, f.name)
+                else:
+                    _LOGGER.debug("Skipping %s — list but not modbus sensors", f.name)
+                    continue
 
-            # Native ESPHome YAML: has 'esphome:' key with sensor:/select: sections
-            if raw.get("esphome") and (raw.get("sensor") or raw.get("select")):
-                tpl = _convert_esphome_native(raw, f.name)
-            elif raw.get("registers") or raw.get("connection_type"):
-                tpl = _normalize_template(raw, f.name)
+            elif isinstance(raw, dict):
+                # Format 2: native ESPHome YAML
+                if raw.get("esphome") and (raw.get("sensor") or raw.get("select")):
+                    raw_text = f.read_text(encoding="utf-8")
+                    tpl = _convert_esphome_native(raw, f.name, raw_text)
+                # Format 3: our internal template format
+                elif raw.get("registers") or raw.get("connection_type"):
+                    tpl = _normalize_template(raw, f.name)
+                else:
+                    _LOGGER.debug("Skipping %s — unrecognized format", f.name)
+                    continue
             else:
-                _LOGGER.debug("Skipping %s — unrecognized format", f.name)
+                _LOGGER.debug("Skipping %s — unrecognized root type", f.name)
                 continue
             if tpl:
                 key = f"ext_{f.stem}"
@@ -182,7 +262,24 @@ async def load_external_templates(hass) -> Dict[str, Dict[str, Any]]:
 async def list_external_template_names(hass) -> Dict[str, str]:
     """Return {key: display_name} for UI dropdown."""
     templates = await load_external_templates(hass)
-    return {k: f"\U0001f4c4 {v['name']} (externa)" for k, v in templates.items()}
+    result = {}
+    for k, v in templates.items():
+        conn = v.get("connection_type", "")
+        pt = v.get("passthrough_type", "")
+        if pt == "ha_modbus_sensors":
+            tag = "Modbus sensors list"
+        elif v.get("passthrough"):
+            tag = "ESPHome passthrough"
+        elif conn == "modbus_tcp":
+            tag = "Modbus TCP"
+        elif conn == "modbus_rtu":
+            tag = "Modbus RTU"
+        elif conn == "esphome":
+            tag = "ESPHome"
+        else:
+            tag = conn
+        result[k] = f"\U0001f4c4 {v['name']} ({tag})"
+    return result
 
 
 async def get_external_template(hass, key: str) -> Optional[Dict[str, Any]]:
@@ -242,194 +339,57 @@ def _normalize_template(raw: Dict[str, Any], source_file: str) -> Optional[Dict[
 
 # ── Native ESPHome YAML converter ────────────────────────────────────────────
 
-def _convert_esphome_native(data: dict, source_file: str) -> Optional[Dict[str, Any]]:
+def _convert_esphome_native(data: dict, source_file: str, raw_text: str = "") -> Optional[Dict[str, Any]]:
     """
-    Convert a native ESPHome YAML (with esphome:, sensor:, select: sections)
-    into our internal template format.
+    Store native ESPHome YAML as a passthrough template.
+    Only global params (name, pins, board, slave) are extracted for the UI form.
+    The full original YAML text is stored and used 1:1 at generation time.
     """
     esp = data.get("esphome", {})
     uart = data.get("uart", {})
     mc_list = data.get("modbus_controller", [])
     mc = (mc_list[0] if isinstance(mc_list, list) else mc_list) or {}
+    board_data = data.get("esp32") or data.get("esp8266") or {}
+    platform = "ESP32" if "esp32" in data else "ESP8266"
 
     name = esp.get("friendly_name") or esp.get("name") or Path(source_file).stem
-
-    # Detect board platform
-    platform = "ESP32" if "esp32" in data else "ESP8266"
-    board = (data.get("esp32") or data.get("esp8266") or {}).get("board", "esp32dev")
-
-    conn = {
-        "platform": platform,
-        "board": board,
-        "tx_pin": uart.get("tx_pin", "GPIO15"),
-        "rx_pin": uart.get("rx_pin", "GPIO14"),
-        "baudrate": uart.get("baud_rate", 9600),
-        "slave": mc.get("address", 1),
-        "parity": "NONE",
-        "stop_bits": uart.get("stop_bits", 1),
-    }
-
-    scan_raw = mc.get("update_interval", "5s")
-    try:
-        scan_interval = int(str(scan_raw).rstrip("s"))
-    except Exception:
-        scan_interval = 5
-
-    registers = []
-
-    # ── sensors ──────────────────────────────────────────────────────────────
-    for s in data.get("sensor", []):
-        platform_s = s.get("platform", "")
-
-        if platform_s == "modbus_controller":
-            reg = {
-                "name": s.get("id") or s.get("name", "sensor"),
-                "friendly_name": s.get("name", ""),
-                "register": s.get("address", 0),
-                "register_type": s.get("register_type", "holding"),
-                "data_type": _vtype_to_dtype(s.get("value_type", "U_WORD")),
-                "entity_type": "sensor",
-            }
-            _copy_common(s, reg)
-            filters = s.get("filters")
-            if filters:
-                reg["custom_filters"] = _filters_to_yaml(filters)
-            if s.get("bitmask"):
-                reg["bitmask"] = hex(s["bitmask"]) if isinstance(s["bitmask"], int) else str(s["bitmask"])
-                reg["entity_type"] = "bitmask_sensor"
-                # Try to find linked text_sensor via on_value
-                on_val = s.get("on_value", {})
-                ts_id, true_t, false_t = _extract_bitmask_texts(on_val)
-                if ts_id:
-                    reg["text_sensor_id"] = ts_id
-                    reg["true_text"] = true_t
-                    reg["false_text"] = false_t
-            registers.append(reg)
-
-        elif platform_s == "integration":
-            reg = {
-                "name": s.get("id") or s.get("name", "integration"),
-                "friendly_name": s.get("name", ""),
-                "entity_type": "integration_sensor",
-                "integration_source": s.get("sensor", ""),
-                "integration_time_unit": s.get("time_unit", "h"),
-                "restore": s.get("restore", True),
-            }
-            _copy_common(s, reg)
-            registers.append(reg)
-
-        elif platform_s == "template":
-            reg = {
-                "name": s.get("id") or s.get("name", "template_sensor"),
-                "friendly_name": s.get("name", ""),
-                "entity_type": "sensor",
-                "register": 0,
-                "register_type": "holding",
-                "data_type": "uint16",
-            }
-            _copy_common(s, reg)
-            if s.get("lambda"):
-                reg["custom_filters"] = f'- lambda: |-\n    {s["lambda"]}'
-            registers.append(reg)
-
-    # ── binary sensors ───────────────────────────────────────────────────────
-    for s in data.get("binary_sensor", []):
-        if s.get("platform") == "modbus_controller":
-            reg = {
-                "name": s.get("id") or s.get("name", "binary"),
-                "friendly_name": s.get("name", ""),
-                "register": s.get("address", 0),
-                "register_type": s.get("register_type", "holding"),
-                "data_type": _vtype_to_dtype(s.get("value_type", "U_WORD")),
-                "entity_type": "binary_sensor",
-            }
-            if s.get("bitmask"):
-                reg["bitmask"] = hex(s["bitmask"]) if isinstance(s["bitmask"], int) else str(s["bitmask"])
-            _copy_common(s, reg)
-            registers.append(reg)
-
-    # ── numbers ──────────────────────────────────────────────────────────────
-    for s in data.get("number", []):
-        if s.get("platform") == "modbus_controller":
-            reg = {
-                "name": s.get("id") or s.get("name", "number"),
-                "friendly_name": s.get("name", ""),
-                "register": s.get("address", 0),
-                "register_type": s.get("register_type", "holding"),
-                "data_type": _vtype_to_dtype(s.get("value_type", "U_WORD")),
-                "entity_type": "number",
-                "min": s.get("min_value", 0),
-                "max": s.get("max_value", 100),
-                "step": s.get("step", 1),
-            }
-            _copy_common(s, reg)
-            registers.append(reg)
-
-    # ── selects ──────────────────────────────────────────────────────────────
-    for s in data.get("select", []):
-        if s.get("platform") == "modbus_controller":
-            reg = {
-                "name": s.get("id") or s.get("name", "select"),
-                "friendly_name": s.get("name", ""),
-                "register": s.get("address", 0),
-                "register_type": s.get("register_type", "holding"),
-                "data_type": _vtype_to_dtype(s.get("value_type", "U_WORD")),
-                "entity_type": "select",
-            }
-            om = s.get("optionsmap")
-            if om:
-                reg["options_map"] = json.dumps(om) if isinstance(om, dict) else str(om)
-            if s.get("lambda"):
-                reg["select_lambda"] = str(s["lambda"])
-            if s.get("write_lambda"):
-                reg["select_write_lambda"] = str(s["write_lambda"])
-            _copy_common(s, reg)
-            registers.append(reg)
-
-    # ── text sensors ─────────────────────────────────────────────────────────
-    for s in data.get("text_sensor", []):
-        if s.get("platform") == "template":
-            reg = {
-                "name": s.get("id") or s.get("name", "text_sensor"),
-                "friendly_name": s.get("name", ""),
-                "entity_type": "text_sensor",
-            }
-            if s.get("lambda"):
-                reg["lambda"] = str(s["lambda"])
-            if s.get("update_interval"):
-                reg["update_interval"] = s["update_interval"]
-            _copy_common(s, reg)
-            registers.append(reg)
-
-    # ── switches ─────────────────────────────────────────────────────────────
-    for s in data.get("switch", []):
-        if s.get("platform") == "modbus_controller":
-            reg = {
-                "name": s.get("id") or s.get("name", "switch"),
-                "friendly_name": s.get("name", ""),
-                "register": s.get("address", 0),
-                "register_type": s.get("register_type", "coil"),
-                "data_type": "uint16",
-                "entity_type": "switch",
-            }
-            registers.append(reg)
-
-    modbus_cfg = data.get("modbus", {})
-    extras = {
-        "modbus_send_wait_time": modbus_cfg.get("send_wait_time", "200ms"),
-        "esp_status_sensor": True,
-        "esp_ip_sensor": True,
-        "restart_switch": True,
-    }
 
     return {
         "name": name,
         "connection_type": "esphome",
-        "scan_interval": scan_interval,
-        "connection_params": conn,
-        "registers": registers,
-        "extras": extras,
+        "passthrough": True,              # signals generator to use raw YAML
+        "passthrough_yaml": raw_text,     # original YAML text
+        "scan_interval": _parse_interval(mc.get("update_interval", "5s")),
+        "connection_params": {
+            "platform": platform,
+            "board": board_data.get("board", "esp32dev"),
+            "tx_pin": uart.get("tx_pin", "GPIO15"),
+            "rx_pin": uart.get("rx_pin", "GPIO14"),
+            "baudrate": uart.get("baud_rate", 9600),
+            "slave": mc.get("address", 1),
+            "parity": "NONE",
+            "stop_bits": uart.get("stop_bits", 1),
+        },
+        "registers": [],  # not used in passthrough mode
+        # Store original values so substitution knows what to replace
+        "_orig": {
+            "name": esp.get("name", ""),
+            "friendly_name": esp.get("friendly_name", ""),
+            "board": board_data.get("board", ""),
+            "tx_pin": uart.get("tx_pin", ""),
+            "rx_pin": uart.get("rx_pin", ""),
+            "baud_rate": str(uart.get("baud_rate", "")),
+            "stop_bits": str(uart.get("stop_bits", "")),
+            "update_interval": mc.get("update_interval", "5s"),
+        },
     }
+
+
+def _parse_interval(val: str) -> int:
+    try:
+        return int(str(val).rstrip("s"))
+    except Exception:
+        return 5
 
 
 def _vtype_to_dtype(vtype: str) -> str:

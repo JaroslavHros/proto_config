@@ -139,6 +139,72 @@ def _normalize_and_validate_filters(raw: str):
 # Main Config Flow
 # ─────────────────────────────────────────────────────────────────────────────
 
+
+def _apply_passthrough_substitutions(device_config: dict, user_input: dict) -> None:
+    """
+    Apply user-specified substitutions to the passthrough YAML text.
+    Replaces: esphome name, friendly_name, board, tx_pin, rx_pin, baud_rate,
+              stop_bits, modbus_controller update_interval.
+    """
+    yaml_text = device_config.get("passthrough_yaml", "")
+    if not yaml_text:
+        return
+
+    orig = device_config.get("_orig", {})
+    conn = device_config.get("connection_params", {})
+
+    def replace_yaml_value(text, key, old_val, new_val):
+        """Replace a specific key: value in YAML text."""
+        import re
+        if not old_val or str(old_val) == str(new_val):
+            return text
+        old_s = str(old_val)
+        new_s = str(new_val)
+        # Match:  key: old_val  with optional surrounding quotes
+        for quote in ['', '"', "'"]:
+            old_pattern = f"{key}: {quote}{re.escape(old_s)}{quote}"
+            new_pattern = f"{key}: {quote}{new_s}{quote}"
+            if old_pattern in text:
+                text = text.replace(old_pattern, new_pattern)
+                return text
+        return text
+
+    new_name = user_input.get("esp_name", orig.get("name", ""))
+    old_name = orig.get("name", "")
+    old_friendly = orig.get("friendly_name", "")
+
+    # Replace esphome.name
+    if new_name and new_name != old_name:
+        yaml_text = replace_yaml_value(yaml_text, "name", old_name, new_name)
+    # Replace esphome.friendly_name (capitalize new name)
+    if new_name and old_friendly:
+        yaml_text = replace_yaml_value(yaml_text, "friendly_name", old_friendly, new_name.replace("_", " ").title())
+
+    # Replace board
+    new_board = user_input.get("board", "")
+    if new_board and new_board != orig.get("board", ""):
+        yaml_text = replace_yaml_value(yaml_text, "board", orig["board"], new_board)
+
+    # Replace UART pins and settings
+    for key, orig_key, ui_key in [
+        ("tx_pin", "tx_pin", "tx_pin"),
+        ("rx_pin", "rx_pin", "rx_pin"),
+        ("baud_rate", "baud_rate", "baudrate"),
+        ("stop_bits", "stop_bits", "stop_bits"),
+    ]:
+        old_v = orig.get(orig_key, "")
+        new_v = user_input.get(ui_key, "")
+        if old_v and new_v and str(old_v) != str(new_v):
+            yaml_text = replace_yaml_value(yaml_text, key, old_v, new_v)
+
+    # Replace modbus_controller update_interval
+    old_interval = orig.get("update_interval", "5s")
+    new_interval = f"{user_input.get('scan_interval', 5)}s" if user_input.get("scan_interval") else None
+    if new_interval and new_interval != old_interval:
+        yaml_text = replace_yaml_value(yaml_text, "update_interval", old_interval, new_interval)
+
+    device_config["passthrough_yaml"] = yaml_text
+
 class HeatPumpConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Multi-step config flow."""
 
@@ -232,6 +298,8 @@ class HeatPumpConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_esphome_template(self, user_input=None) -> FlowResult:
         """Let user confirm/adjust ESP connection params from the template."""
         tpl_conn = self._device_config.get("connection_params", {})
+        is_passthrough = self._device_config.get("passthrough", False)
+
         if user_input is not None:
             self._device_config["connection_params"] = {
                 "platform": user_input.get("platform", "ESP32"),
@@ -243,23 +311,33 @@ class HeatPumpConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 "parity": user_input.get("parity", "NONE"),
                 "stop_bits": user_input.get("stop_bits", 1),
             }
+            if is_passthrough:
+                new_name = user_input.get("esp_name", "").strip()
+                if new_name:
+                    self._device_config["name"] = new_name
+                _apply_passthrough_substitutions(self._device_config, user_input)
             return await self.async_step_finish()
 
+        schema_dict = {}
+        if is_passthrough:
+            schema_dict[vol.Required("esp_name", default=self._device_config.get("name", ""))] = str
+        schema_dict.update({
+            vol.Required("platform", default=tpl_conn.get("platform", "ESP32")): vol.In(["ESP32", "ESP8266"]),
+            vol.Required("board", default=tpl_conn.get("board", "esp32dev")): str,
+            vol.Required("tx_pin", default=tpl_conn.get("tx_pin", "GPIO15")): str,
+            vol.Required("rx_pin", default=tpl_conn.get("rx_pin", "GPIO14")): str,
+            vol.Required("baudrate", default=tpl_conn.get("baudrate", 9600)): vol.In([9600, 19200, 38400, 115200]),
+            vol.Required(CONF_MODBUS_SLAVE, default=tpl_conn.get("slave", 1)): cv.positive_int,
+            vol.Optional("parity", default=tpl_conn.get("parity", "NONE")): vol.In(["NONE", "EVEN", "ODD"]),
+            vol.Optional("stop_bits", default=tpl_conn.get("stop_bits", 1)): vol.In([1, 2]),
+        })
+        mode_info = "Passthrough rezim: YAML sa pouzije 1:1, upravia sa len globalne parametre." if is_passthrough else f"Template nacitany s {len(self._registers)} registrami."
         return self.async_show_form(
             step_id="esphome_template",
-            data_schema=vol.Schema({
-                vol.Required("platform", default=tpl_conn.get("platform", "ESP32")): vol.In(["ESP32", "ESP8266"]),
-                vol.Required("board", default=tpl_conn.get("board", "esp32dev")): str,
-                vol.Required("tx_pin", default=tpl_conn.get("tx_pin", "GPIO15")): str,
-                vol.Required("rx_pin", default=tpl_conn.get("rx_pin", "GPIO14")): str,
-                vol.Required("baudrate", default=tpl_conn.get("baudrate", 9600)): vol.In([9600, 19200, 38400, 115200]),
-                vol.Required(CONF_MODBUS_SLAVE, default=tpl_conn.get("slave", 1)): cv.positive_int,
-                vol.Optional("parity", default=tpl_conn.get("parity", "NONE")): vol.In(["NONE", "EVEN", "ODD"]),
-                vol.Optional("stop_bits", default=tpl_conn.get("stop_bits", 1)): vol.In([1, 2]),
-            }),
+            data_schema=vol.Schema(schema_dict),
             description_placeholders={
                 "register_count": str(len(self._registers)),
-                "template_info": f"Template loaded with {len(self._registers)} registers.",
+                "template_info": mode_info,
             },
         )
 
@@ -271,6 +349,9 @@ class HeatPumpConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 "port": user_input[CONF_MODBUS_PORT],
                 "slave": user_input[CONF_MODBUS_SLAVE],
             }
+            # Passthrough templates already have registers — skip wizard
+            if self._device_config.get("passthrough"):
+                return await self.async_step_finish()
             return await self.async_step_add_register()
 
         return self.async_show_form(
@@ -292,6 +373,9 @@ class HeatPumpConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 "parity": user_input.get("parity", "N"),
                 "stop_bits": user_input.get("stop_bits", 1),
             }
+            # Passthrough templates already have registers — skip wizard
+            if self._device_config.get("passthrough"):
+                return await self.async_step_finish()
             return await self.async_step_add_register()
 
         return self.async_show_form(
@@ -579,6 +663,7 @@ class HeatPumpConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     # ── Step: finish ──────────────────────────────────────────────────────
     async def async_step_finish(self, user_input=None) -> FlowResult:
         self._device_config["registers"] = self._registers
+        self._device_config["needs_generate"] = True
         return self.async_create_entry(
             title=self._device_config["name"],
             data=self._device_config,
@@ -959,4 +1044,5 @@ class HeatPumpOptionsFlow(config_entries.OptionsFlow):
 
     async def _save(self) -> FlowResult:
         self._device_config["registers"] = self._registers
+        self._device_config["needs_generate"] = True
         return self.async_create_entry(title=self._device_config["name"], data=self._device_config)

@@ -44,7 +44,7 @@ class ESPHomeYAMLGenerator:
     @staticmethod
     def generate(device_config: Dict[str, Any]) -> Dict[str, Any]:
         device_id = (
-            device_config.get("id")
+            device_config.get("file_id")
             or device_config.get("name", "device").lower().replace(" ", "_")
         )
 

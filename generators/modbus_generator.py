@@ -44,7 +44,10 @@ class ModbusYAMLGenerator:
     @staticmethod
     def generate(device_config: Dict[str, Any]) -> Dict[str, Any]:
         connection_type = device_config.get("connection_type")
-        device_id = device_config.get("id") or device_config.get("name", "device").lower().replace(" ", "_")
+        device_id = (
+            device_config.get("file_id")
+            or device_config.get("name", "device").lower().replace(" ", "_")
+        )
 
         if connection_type == CONN_MODBUS_TCP:
             return ModbusYAMLGenerator._generate_tcp(device_config, device_id)
