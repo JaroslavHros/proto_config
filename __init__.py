@@ -76,6 +76,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Generate YAML only when flagged — avoids recreating deleted files on restart
     needs_generate = device_config.pop("needs_generate", False)
     if needs_generate:
+        # Clear the flag from entry.data/options so it doesn't persist across restarts
+        clean_data = {k: v for k, v in entry.data.items() if k != "needs_generate"}
+        clean_options = {k: v for k, v in entry.options.items() if k != "needs_generate"}
+        hass.config_entries.async_update_entry(entry, data=clean_data, options=clean_options)
+
         stored = storage.get_device(storage_id)
         try:
             await _generate_config(hass, stored, file_id)

@@ -263,6 +263,12 @@
           "internal": "Interný sensor",
           "icon": "Ikona"
         }
+      },
+      "rename": {
+        "title": "Premenovať zariadenie",
+        "data": {
+          "name": "Nový názov zariadenia"
+        }
       }
     }
   }

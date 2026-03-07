@@ -2,7 +2,6 @@
 import json
 import logging
 from pathlib import Path
-from typing import Any
 
 import voluptuous as vol
 from homeassistant.core import HomeAssistant, ServiceCall
@@ -30,42 +29,47 @@ SCHEMA_IMPORT = vol.Schema({
 })
 
 
+def _active_entry_ids(hass) -> set:
+    """Return entry_ids of currently loaded (not deleted) entries."""
+    return set(hass.data.get(DOMAIN, {}).get("entries", {}).keys())
+
+
 async def async_setup_services(hass: HomeAssistant) -> None:
     """Register all integration services."""
 
     async def handle_reload(call: ServiceCall) -> None:
-        """Regenerate YAML and reload Modbus/ESPHome."""
-        from .generators import ModbusYAMLGenerator, ESPHomeYAMLGenerator
+        """Regenerate YAML only for active (non-deleted) devices."""
+        from . import _generate_config
 
         storage = hass.data[DOMAIN].get("storage")
         if not storage:
             _LOGGER.error("Storage not initialized")
             return
 
-        device_id = call.data.get("device_id")
-        devices = [storage.get_device(device_id)] if device_id else storage.get_all_devices()
+        # Only regenerate devices that are still active in HA
+        active_ids = _active_entry_ids(hass)
+
+        requested_id = call.data.get("device_id")
+
+        if requested_id:
+            device = storage.get_device(requested_id)
+            devices = [device] if device else []
+        else:
+            # All active devices only — never ghost/deleted ones
+            devices = [
+                d for d in storage.get_all_devices()
+                if d.get("id") in active_ids
+            ]
+
         devices = [d for d in devices if d]
 
         for device in devices:
-            did = device.get("id", "unknown")
-            conn_type = device.get("connection_type")
+            file_id = device.get("file_id") or device.get("name", "device").lower().replace(" ", "_")
             try:
-                if conn_type in ("modbus_tcp", "modbus_rtu"):
-                    modbus_dir = Path(hass.config.path("modbus"))
-                    modbus_dir.mkdir(exist_ok=True)
-                    cfg = ModbusYAMLGenerator.generate(device)
-                    await ModbusYAMLGenerator.write_to_file(cfg, modbus_dir / f"{did}.yaml")
-                    _LOGGER.info("Regenerated Modbus YAML for %s", did)
-                    # Reload Modbus integration
-                    await hass.services.async_call("modbus", "reload", {})
-                elif conn_type == "esphome":
-                    esphome_dir = Path(hass.config.path("esphome"))
-                    esphome_dir.mkdir(exist_ok=True)
-                    cfg = ESPHomeYAMLGenerator.generate(device)
-                    await ESPHomeYAMLGenerator.write_to_file(cfg, esphome_dir / f"{did}.yaml")
-                    _LOGGER.info("Regenerated ESPHome YAML for %s", did)
+                await _generate_config(hass, device, file_id)
+                _LOGGER.info("Regenerated YAML for %s", file_id)
             except Exception as e:
-                _LOGGER.error("Reload failed for %s: %s", did, e)
+                _LOGGER.error("Reload failed for %s: %s", file_id, e)
 
         await hass.services.async_call(
             "persistent_notification", "create",
@@ -88,7 +92,8 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             _LOGGER.error("Device %s not found for export", device_id)
             return
 
-        output_path = call.data.get("output_path") or hass.config.path(f"heatpump_export_{device_id}.json")
+        file_id = device.get("file_id", device_id)
+        output_path = call.data.get("output_path") or hass.config.path(f"heatpump_export_{file_id}.json")
         export_data = {
             "heatpump_configurator_export": True,
             "version": "0.2.0",
@@ -96,18 +101,20 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         }
 
         def _write():
-            Path(output_path).write_text(json.dumps(export_data, indent=2, ensure_ascii=False), encoding="utf-8")
+            Path(output_path).write_text(
+                json.dumps(export_data, indent=2, ensure_ascii=False),
+                encoding="utf-8"
+            )
 
-        import asyncio
-        await asyncio.get_running_loop().run_in_executor(None, _write)
-        _LOGGER.info("Exported device %s to %s", device_id, output_path)
+        await hass.async_add_executor_job(_write)
+        _LOGGER.info("Exported device %s to %s", file_id, output_path)
 
         await hass.services.async_call(
             "persistent_notification", "create",
             {
                 "title": "Heat Pump Configurator - Export",
                 "message": f"Configuration exported to:\n`{output_path}`",
-                "notification_id": f"heatpump_export_{device_id}",
+                "notification_id": f"heatpump_export_{file_id}",
             },
         )
 
@@ -118,9 +125,8 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         def _read():
             return Path(config_path).read_text(encoding="utf-8")
 
-        import asyncio
         try:
-            raw = await asyncio.get_running_loop().run_in_executor(None, _read)
+            raw = await hass.async_add_executor_job(_read)
             data = json.loads(raw)
         except Exception as e:
             _LOGGER.error("Failed to read import file %s: %s", config_path, e)
@@ -138,7 +144,6 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         if not storage:
             return
 
-        # Remove existing ID so it gets a fresh one if conflicts
         device.pop("id", None)
         new_id = await storage.async_add_device(device)
         _LOGGER.info("Imported device as %s", new_id)

@@ -711,6 +711,8 @@ class HeatPumpOptionsFlow(config_entries.OptionsFlow):
                     return await self.async_step_edit_modbus_rtu()
                 elif ct == CONN_ESPHOME:
                     return await self.async_step_edit_esphome()
+            elif action == "rename":
+                return await self.async_step_rename()
             elif action == "delete_register":
                 return await self.async_step_delete_register()
             elif action == "regenerate":
@@ -721,6 +723,7 @@ class HeatPumpOptionsFlow(config_entries.OptionsFlow):
         action_choices = {
             "add_register": "➕ Add register",
             "edit_connection": "🔧 Edit connection parameters",
+            "rename": "✏️ Rename device",
             "delete_register": "🗑️ Delete a register",
             "regenerate": "🔄 Regenerate & reload YAML",
             "save": "💾 Save changes",
@@ -738,7 +741,22 @@ class HeatPumpOptionsFlow(config_entries.OptionsFlow):
             description_placeholders={"registers": reg_summary},
         )
 
-    # ── Edit connection params ────────────────────────────────────────────
+    # ── Rename device ─────────────────────────────────────────────────────
+    async def async_step_rename(self, user_input=None) -> FlowResult:
+        if user_input is not None:
+            new_name = user_input["name"].strip()
+            if new_name:
+                self._device_config["name"] = new_name
+            return await self.async_step_init()
+
+        return self.async_show_form(
+            step_id="rename",
+            data_schema=vol.Schema({
+                vol.Required("name", default=self._device_config.get("name", "")): str,
+            }),
+        )
+
+        # ── Edit connection params ────────────────────────────────────────────
     async def async_step_edit_modbus_tcp(self, user_input=None) -> FlowResult:
         cp = self._device_config.get("connection_params", {})
         if user_input is not None:
@@ -1037,10 +1055,14 @@ class HeatPumpOptionsFlow(config_entries.OptionsFlow):
 
     # ── Helpers ───────────────────────────────────────────────────────────
     async def _do_regenerate(self) -> FlowResult:
-        """Regenerate YAML immediately (calls HA service)."""
-        await self._save()
-        await self.hass.services.async_call(DOMAIN, "reload", {})
-        return self.async_abort(reason="regenerated")
+        """Save and regenerate YAML for THIS device only."""
+        result = await self._save()
+        # Call reload service with specific device_id (entry_id) — not all devices
+        await self.hass.services.async_call(
+            DOMAIN, "reload",
+            {"device_id": self.config_entry.entry_id},
+        )
+        return result
 
     async def _save(self) -> FlowResult:
         self._device_config["registers"] = self._registers
