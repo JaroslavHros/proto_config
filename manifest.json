@@ -1,6 +1,6 @@
 {
-  "domain": "heatpump_configurator",
-  "name": "Heat Pump Configurator",
+  "domain": "proto_config",
+  "name": "ProtoConfig",
   "codeowners": [],
   "config_flow": true,
   "documentation": "https://github.com/yourusername/heatpump-configurator",

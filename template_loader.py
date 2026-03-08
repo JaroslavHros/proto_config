@@ -1,4 +1,4 @@
-"""External template loader for Heat Pump Configurator.
+"""External template loader for ProtoConfig.
 
 Templates are loaded from:
   <HA config>/heatpump_templates/
@@ -34,7 +34,7 @@ def _ensure_templates_dir_sync(hass_config_dir: str) -> Path:
     readme = d / "README.md"
     if not readme.exists():
         readme.write_text(
-            "# Heat Pump Configurator — External Templates\n\n"
+            "# ProtoConfig — External Templates\n\n"
             "Umiestni sem JSON alebo YAML súbory so sablonami zariadeni.\n"
             "Kazdy subor musi obsahovat marker: \"_heatpump_template\": true\n\n"
             "Subory sa automaticky objavia v zozname sablon pri pridavani zariadenia.\n",

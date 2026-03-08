@@ -1,4 +1,4 @@
-"""HA Services for Heat Pump Configurator."""
+"""HA Services for ProtoConfig."""
 import json
 import logging
 from pathlib import Path
@@ -74,9 +74,9 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         await hass.services.async_call(
             "persistent_notification", "create",
             {
-                "title": "Heat Pump Configurator",
+                "title": "ProtoConfig",
                 "message": f"Reload complete for {len(devices)} device(s).",
-                "notification_id": "heatpump_reload",
+                "notification_id": "proto_config_reload",
             },
         )
 
@@ -87,15 +87,30 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             return
 
         device_id = call.data["device_id"]
+        # Accept either entry_id or file_id (human slug like "iterm_tepelko")
         device = storage.get_device(device_id)
         if not device:
-            _LOGGER.error("Device %s not found for export", device_id)
+            # Try matching by file_id or name slug
+            device = next(
+                (d for d in storage.get_all_devices()
+                 if d.get("file_id") == device_id
+                 or d.get("name", "").lower().replace(" ", "_") == device_id),
+                None
+            )
+        if not device:
+            # Log all known devices to help user find correct ID
+            known = [(d.get("id","?"), d.get("file_id","?"), d.get("name","?"))
+                     for d in storage.get_all_devices()]
+            _LOGGER.error(
+                "Device '%s' not found for export. Known devices: %s",
+                device_id, known
+            )
             return
 
         file_id = device.get("file_id", device_id)
-        output_path = call.data.get("output_path") or hass.config.path(f"heatpump_export_{file_id}.json")
+        output_path = call.data.get("output_path") or hass.config.path(f"proto_config_export_{file_id}.json")
         export_data = {
-            "heatpump_configurator_export": True,
+            "proto_config_export": True,
             "version": "0.2.0",
             "device": device,
         }
@@ -112,9 +127,9 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         await hass.services.async_call(
             "persistent_notification", "create",
             {
-                "title": "Heat Pump Configurator - Export",
+                "title": "ProtoConfig - Export",
                 "message": f"Configuration exported to:\n`{output_path}`",
-                "notification_id": f"heatpump_export_{file_id}",
+                "notification_id": f"proto_config_export_{file_id}",
             },
         )
 
@@ -132,8 +147,8 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             _LOGGER.error("Failed to read import file %s: %s", config_path, e)
             return
 
-        if not data.get("heatpump_configurator_export"):
-            _LOGGER.error("File %s is not a valid Heat Pump Configurator export", config_path)
+        if not data.get("proto_config_export"):
+            _LOGGER.error("File %s is not a valid ProtoConfig export", config_path)
             return
 
         device = data.get("device", {})
@@ -151,13 +166,13 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         await hass.services.async_call(
             "persistent_notification", "create",
             {
-                "title": "Heat Pump Configurator - Import",
+                "title": "ProtoConfig - Import",
                 "message": (
                     f"Device imported as `{new_id}`.\n\n"
-                    f"Go to **Settings → Devices & Services → Heat Pump Configurator** "
+                    f"Go to **Settings → Devices & Services → ProtoConfig** "
                     f"to add it as an integration entry."
                 ),
-                "notification_id": f"heatpump_import_{new_id}",
+                "notification_id": f"proto_config_import_{new_id}",
             },
         )
 

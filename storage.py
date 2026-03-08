@@ -1,4 +1,4 @@
-"""Storage handler for Heat Pump Configurator."""
+"""Storage handler for ProtoConfig."""
 import logging
 from typing import Any, Dict, List, Optional
 

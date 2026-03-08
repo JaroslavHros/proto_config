@@ -1,6 +1,6 @@
-"""Constants for Heat Pump Configurator."""
+"""Constants for ProtoConfig."""
 
-DOMAIN = "heatpump_configurator"
+DOMAIN = "proto_config"
 
 # Configuration keys
 CONF_CONNECTION_TYPE = "connection_type"
@@ -54,24 +54,26 @@ DATA_TYPES = [
     DATA_TYPE_UINT64,
 ]
 
-# Entity types (Modbus + ESPHome shared)
+# Entity types
 ENTITY_SENSOR = "sensor"
 ENTITY_BINARY_SENSOR = "binary_sensor"
-ENTITY_NUMBER = "number"
 ENTITY_SWITCH = "switch"
-ENTITY_SELECT = "select"
+ENTITY_CLIMATE = "climate"
 
 # ESPHome-only entity types
+ENTITY_NUMBER = "number"
+ENTITY_SELECT = "select"
 ENTITY_TEXT_SENSOR = "text_sensor"
 ENTITY_INTEGRATION_SENSOR = "integration_sensor"
 ENTITY_BITMASK_SENSOR = "bitmask_sensor"
 
+# Modbus supports: sensor, binary_sensor, switch, climate
+# (+ cover, fan, light - not implemented yet)
 ENTITY_TYPES_MODBUS = [
     ENTITY_SENSOR,
     ENTITY_BINARY_SENSOR,
-    ENTITY_NUMBER,
     ENTITY_SWITCH,
-    ENTITY_SELECT,
+    ENTITY_CLIMATE,
 ]
 
 ENTITY_TYPES_ESPHOME = [

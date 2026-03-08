@@ -1,4 +1,4 @@
-"""Config flow for Heat Pump Configurator v0.2."""
+"""Config flow for ProtoConfig v0.2."""
 import json
 import logging
 from typing import Any, Dict, List, Optional
@@ -205,7 +205,7 @@ def _apply_passthrough_substitutions(device_config: dict, user_input: dict) -> N
 
     device_config["passthrough_yaml"] = yaml_text
 
-class HeatPumpConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+class ProtoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Multi-step config flow."""
 
     VERSION = 1
@@ -223,7 +223,7 @@ class HeatPumpConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     @staticmethod
     @callback
     def async_get_options_flow(config_entry):
-        return HeatPumpOptionsFlow(config_entry)
+        return ProtoOptionsFlow(config_entry)
 
     # ── Step 1: device name + connection type ─────────────────────────────
     async def async_step_user(self, user_input=None) -> FlowResult:
@@ -674,13 +674,16 @@ class HeatPumpConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 # Options Flow  (edit existing device)
 # ─────────────────────────────────────────────────────────────────────────────
 
-class HeatPumpOptionsFlow(config_entries.OptionsFlow):
+class ProtoOptionsFlow(config_entries.OptionsFlow):
     """Allow editing an existing device entry."""
 
     def __init__(self, config_entry):
         self._entry = config_entry
-        self._registers: List[Dict] = list(config_entry.data.get("registers", []))
-        self._device_config: Dict = dict(config_entry.data)
+        # Merge options into data — same as async_setup_entry does
+        # This ensures edits saved via _save() (which go to entry.options) are visible
+        merged = {**config_entry.data, **config_entry.options}
+        self._registers: List[Dict] = list(merged.get("registers", []))
+        self._device_config: Dict = merged
         self._pending_delete: Optional[int] = None
 
     def _is_esphome(self):
@@ -1066,5 +1069,8 @@ class HeatPumpOptionsFlow(config_entries.OptionsFlow):
 
     async def _save(self) -> FlowResult:
         self._device_config["registers"] = self._registers
-        self._device_config["needs_generate"] = True
+        # async_create_entry in OptionsFlow saves to entry.options
+        # needs_generate must also land in entry.data so async_setup_entry sees it
+        new_data = {**self.config_entry.data, **self._device_config, "needs_generate": True}
+        self.hass.config_entries.async_update_entry(self.config_entry, data=new_data)
         return self.async_create_entry(title=self._device_config["name"], data=self._device_config)

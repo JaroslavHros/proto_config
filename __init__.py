@@ -1,6 +1,7 @@
-"""Heat Pump Configurator — main integration module."""
+"""ProtoConfig — main integration module."""
 import logging
 import re
+import unicodedata
 from pathlib import Path
 
 from homeassistant.config_entries import ConfigEntry
@@ -16,9 +17,12 @@ _LOGGER = logging.getLogger(__name__)
 
 
 def _file_id_from_name(name: str) -> str:
-    """'My TC 1' -> 'my_tc_1'  (safe filename)."""
-    slug = re.sub(r"[^a-z0-9]+", "_", name.lower().strip()).strip("_")
-    return slug or "heatpump"
+    """'Iterm TČ 1' -> 'iterm_tc_1'  (ASCII slug, diacritics transliterated)."""
+    # Decompose unicode (e.g. Č -> C + combining caron), drop combining chars
+    normalized = unicodedata.normalize("NFKD", name)
+    ascii_str = normalized.encode("ascii", "ignore").decode("ascii")
+    slug = re.sub(r"[^a-z0-9]+", "_", ascii_str.lower().strip()).strip("_")
+    return slug or "device"
 
 
 def _yaml_path(hass, device_config: dict) -> Path | None:
@@ -73,13 +77,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     else:
         await storage.async_add_device(dict(device_config))
 
-    # Generate YAML only when flagged — avoids recreating deleted files on restart
-    needs_generate = device_config.pop("needs_generate", False)
+    # Generate YAML only when flagged — flag lives in entry.data, not options
+    # (update_listener only fires on options changes, so clearing data won't retrigger it)
+    needs_generate = entry.data.get("needs_generate", False)
+
+    hass.data[DOMAIN].setdefault("entries", {})[entry.entry_id] = storage_id
+    entry.async_on_unload(entry.add_update_listener(_async_update_options))
+
     if needs_generate:
-        # Clear the flag from entry.data/options so it doesn't persist across restarts
+        # Clear flag BEFORE generating so a crash doesn't leave it set
         clean_data = {k: v for k, v in entry.data.items() if k != "needs_generate"}
-        clean_options = {k: v for k, v in entry.options.items() if k != "needs_generate"}
-        hass.config_entries.async_update_entry(entry, data=clean_data, options=clean_options)
+        hass.config_entries.async_update_entry(entry, data=clean_data)
 
         stored = storage.get_device(storage_id)
         try:
@@ -88,16 +96,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             _LOGGER.error("Config generation failed for %s: %s", entry.title, err)
             raise ConfigEntryNotReady from err
 
-    hass.data[DOMAIN].setdefault("entries", {})[entry.entry_id] = storage_id
-    entry.async_on_unload(entry.add_update_listener(_async_update_options))
     return True
 
 
 async def _async_update_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Options saved — set flag then reload so generation runs exactly once."""
-    # Merge needs_generate flag into options
-    new_options = {**entry.options, "needs_generate": True}
-    hass.config_entries.async_update_entry(entry, options=new_options)
+    """Called when OptionsFlow saves — just reload, flag is already in entry.data."""
     await hass.config_entries.async_reload(entry.entry_id)
 
 
@@ -166,7 +169,7 @@ async def _generate_modbus(hass, device_config: dict, file_id: str) -> None:
 
     _LOGGER.info("Generated Modbus YAML: %s", yaml_file)
     await hass.services.async_call("persistent_notification", "create", {
-        "title": "Heat Pump Configurator — Modbus",
+        "title": "ProtoConfig — Modbus",
         "message": msg,
         "notification_id": f"heatpump_modbus_{file_id}",
     })
@@ -218,7 +221,7 @@ async def _generate_esphome(hass, device_config: dict, file_id: str) -> None:
         _LOGGER.info("Generated ESPHome YAML: %s", yaml_file)
 
     await hass.services.async_call("persistent_notification", "create", {
-        "title": "Heat Pump Configurator — ESPHome",
+        "title": "ProtoConfig — ESPHome",
         "message": (
             f"Vygenerovaný ESPHome config: `{yaml_file}`\n\n"
             f"Ďalšie kroky:\n"
