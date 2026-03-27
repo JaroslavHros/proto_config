@@ -84,7 +84,8 @@
           "min": "Min hodnota",
           "max": "Max hodnota",
           "step": "Krok",
-          "done": "Dokončiť pridávanie registrov"
+          "done": "Dokončiť pridávanie registrov",
+          "internal": "Internal (hidden in HA) sensor"
         }
       },
       "add_integration_sensor": {
@@ -219,7 +220,8 @@
           "custom_filters": "Custom filters",
           "min": "Min",
           "max": "Max",
-          "step": "Krok"
+          "step": "Krok",
+          "internal": "Internal (hidden in HA) sensor"
         }
       },
       "add_integration_sensor": {

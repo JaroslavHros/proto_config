@@ -482,8 +482,8 @@ class ProtoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         for k in ["min", "max", "step"]:
                             if user_input.get(k) is not None:
                                 reg[k] = user_input[k]
-                    if reg.get("internal"):
-                        reg["internal"] = True
+                    if self._is_esphome():
+                        reg["internal"] = bool(user_input.get("internal", False))
                     if not errors:
                         self._registers.append(reg)
                         _LOGGER.info("Added register '%s' @ %s", reg["name"], _fmt_addr(address))
@@ -521,6 +521,7 @@ class ProtoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Optional("select_lambda"): TextSelector(TextSelectorConfig(multiline=True)),
                 vol.Optional("select_write_lambda"): TextSelector(TextSelectorConfig(multiline=True)),
                 vol.Optional("custom_filters"): TextSelector(TextSelectorConfig(multiline=True)),
+                vol.Optional("internal", default=False): bool,
             })
         else:
             schema_dict.update({
@@ -885,6 +886,7 @@ class ProtoOptionsFlow(config_entries.OptionsFlow):
                     for k in ["accuracy_decimals", "icon", "bitmask", "options_map", "select_lambda", "select_write_lambda"]:
                         if user_input.get(k):
                             reg[k] = user_input[k]
+                    reg["internal"] = bool(user_input.get("internal", False))
                     if user_input.get("custom_filters"):
                         normalized, err = _normalize_and_validate_filters(user_input["custom_filters"])
                         if err:
@@ -929,6 +931,7 @@ class ProtoOptionsFlow(config_entries.OptionsFlow):
                 vol.Optional("select_lambda"): TextSelector(TextSelectorConfig(multiline=True)),
                 vol.Optional("select_write_lambda"): TextSelector(TextSelectorConfig(multiline=True)),
                 vol.Optional("custom_filters"): TextSelector(TextSelectorConfig(multiline=True)),
+                vol.Optional("internal", default=False): bool,
             })
         else:
             schema_dict.update({
